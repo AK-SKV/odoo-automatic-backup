@@ -9,9 +9,6 @@ import botocore
 import dropbox
 from dropbox import exceptions as dropbox_exceptions
 
-from pydrive.auth import GoogleAuth
-from pydrive.drive import GoogleDrive
-
 import owncloud
 
 import os
@@ -22,45 +19,42 @@ import datetime
 class BackupTypes(Enum):
     s3 = ('s3', 'Amazon Web-Service S3')
     dropbox = ('dropbox', 'Dropbox')
-    google_drive = ('google_drive', 'Google Drive')
     owncloud = ('owncloud', 'OwnCloud')
+    sftp = ('sftp', 'SFTP')
 
 
 class Configuration(models.Model):
     _name = 'automatic_backup.configuration'
     _inherit = ['mail.thread']
 
-    name = fields.Char(required=True)
-    active = fields.Boolean(default=True)
+    name = fields.Char(required=1)
+    active = fields.Boolean(default=0)
+    state = fields.Selection([('disabled', 'Disabled'),('active', 'Active')], default='disabled', readonly=1)
 
     schedule_frequently = fields.Selection(string='Every', selection=[('days', 'Days'), ('weeks', 'Weeks')],
                                            default='weeks', required=1)
     schedule_number = fields.Integer(min=1, default=1, required=1)
 
-    next_backup_time = fields.Datetime(default=lambda self: self._default_next_backup_time(), store=True, required=1,
-                                       help="Next Backup-Time with your UTC")
+    next_backup_time = fields.Datetime(store=0, readonly=1, compute='_compute_next_backup_time')
     success_mail = fields.Many2one('res.users', ondelete='set null')
     error_mail = fields.Many2one('res.users', ondelete='set null')
 
     cron_id = fields.Many2one('ir.cron', ondelete='cascade')
 
     backup_type = fields.Selection([
-        BackupTypes.s3.value,
-        BackupTypes.dropbox.value,
-        BackupTypes.google_drive.value,
-        BackupTypes.owncloud.value
-    ], required=True)
+        BackupTypes.s3.value, BackupTypes.dropbox.value, BackupTypes.owncloud.value, BackupTypes.sftp.value
+    ], required=1)
     upload_path = fields.Char("Path to upload", required=True)
-    last_backup = fields.Datetime(readonly=True)
-    last_message = fields.Char(readonly=True)
-    last_path = fields.Char(readonly=True)
+    last_backup = fields.Datetime(readonly=1)
+    last_message = fields.Char(readonly=1)
+    last_path = fields.Char(readonly=1)
 
-    show_s3 = fields.Boolean(compute='set_show_s3', store=False)
-    show_dropbox = fields.Boolean(compute='set_show_dropbox', store=False)
-    show_owncloud = fields.Boolean(compute='set_show_owncloud', store=False)
+    show_s3 = fields.Boolean(compute='set_show_s3', store=0)
+    show_dropbox = fields.Boolean(compute='set_show_dropbox', store=0)
+    show_owncloud = fields.Boolean(compute='set_show_owncloud', store=0)
 
-    show_access_key = fields.Boolean(compute='set_show_access_key', store=False)
-    show_secret_key = fields.Boolean(compute='set_show_secret_key', store=False)
+    show_access_key = fields.Boolean(compute='set_show_access_key', store=0)
+    show_secret_key = fields.Boolean(compute='set_show_secret_key', store=0)
 
     access_key_id = fields.Char("Access Key")
     secret_access_key = fields.Char("Secret Key")
@@ -73,21 +67,6 @@ class Configuration(models.Model):
     @api.model
     def create(self, vals):
         vals = self.check_upload_path(vals)
-        model_id = self.env['ir.model'].search([('model','=', self._name)])
-        cron_id = self.env['ir.cron'].create({
-            'name': 'Backup: '+ vals['name'],
-            'model_id': model_id.id,
-            'state': 'code',
-            'user_id': 1,
-            'interval_number': vals['schedule_number'],
-            'interval_type': vals['schedule_frequently'],
-            'nextcall': vals['next_backup_time'],
-            'priority': 100,
-            'numbercall': -1,
-            'active': vals['active'],
-            'code': 'model.action_backup('+str(self.id)+')'
-        })
-        vals['cron_id'] = cron_id.id
         result = super(Configuration, self).create(vals)
         return result
 
@@ -98,34 +77,44 @@ class Configuration(models.Model):
         result = super(Configuration, self).write(vals)
         try:
             if self.cron_id:
-                self.cron_id.write({
-                    'interval_number': self.schedule_number,
-                    'interval_type': self.schedule_frequently,
-                    'nextcall': self.next_backup_time,
-                    'active': self.active
-                })
+                if 'interval_number' in vals:
+                    self.cron_id.write({'interval_number': self.schedule_number,})
+                if 'interval_type' in vals:
+                    self.cron_id.write({'interval_type': self.schedule_frequently,})
+                if 'active' in vals:
+                    self.cron_id.write({'active': self.active})
                 if 'name' in vals:
                     self.cron_id.write({'name': 'Backup: '+self.name})
         except:
+            # only if cron is busy
             pass
         return result
 
+    @api.multi
     def unlink(self):
-        cron_id = self.cron_id
-        self.cron_id = False
-        if cron_id:
-            cron_id.unlink()
+        self.ensure_one()
+        if self.cron_id:
+            cron_id = self.cron_id
+            self.cron_id = False
+            if cron_id:
+                cron_id.unlink()
         result = super(Configuration, self).unlink()
         return result
 
     def check_upload_path(self, vals):
         if 'upload_path' in vals:
             vals['upload_path'] = vals['upload_path'].replace('\\', '/')
-            vals['upload_path'] = ''.join(vals['upload_path'][i] for i in range(len(vals['upload_path'])-1) if (i != 0 and vals['upload_path'][i-1] != vals['upload_path'][i]) or vals['upload_path'][i] != '/')
-            if '/' != vals['upload_path'][0]:
-                vals['upload_path'] = '/' + vals['upload_path']
-            if '/' != vals['upload_path'][-1]:
-                vals['upload_path'] = vals['upload_path'] + '/'
+            vals['upload_path'] = ''.join(
+                vals['upload_path'][i] for i in range(len(vals['upload_path'])-1)
+                if (i != 0 and vals['upload_path'][i-1] != vals['upload_path'][i]) or vals['upload_path'][i] != '/' or (vals['upload_path'][i] == '/' and i == 0)
+            )
+            if len(vals['upload_path']):
+                if '/' != vals['upload_path'][0]:
+                    vals['upload_path'] = '/' + vals['upload_path']
+                if '/' != vals['upload_path'][-1]:
+                    vals['upload_path'] = vals['upload_path'] + '/'
+            else:
+                vals['upload_path'] = '/'
         return vals
 
     def set_show_s3(self):
@@ -146,8 +135,9 @@ class Configuration(models.Model):
     def set_show_secret_key(self):
         self.show_secret_key = (self.backup_type == BackupTypes.s3.value[0])
 
-    def _default_next_backup_time(self):
-        return datetime.datetime.now() + datetime.timedelta(days=1)
+    def _compute_next_backup_time(self):
+        if self.cron_id:
+            self.next_backup_time = self.cron_id.nextcall
 
     @api.onchange('backup_type')
     def onchange_backup_type(self):
@@ -157,7 +147,7 @@ class Configuration(models.Model):
         self.set_show_owncloud()
 
     def action_backup(self, id):
-        backup_ids = self.browse([id])
+        backup_ids = self.search([id])
         for backup in backup_ids:
             backup.btn_action_backup()
 
@@ -169,10 +159,10 @@ class Configuration(models.Model):
                 self._backup_on_s3()
             elif self.backup_type == BackupTypes.dropbox.value[0]:
                 self._backup_on_dropbox()
-            elif self.backup_type == BackupTypes.google_drive.value[0]:
-                self._backup_on_googledrive()
             elif self.backup_type == BackupTypes.owncloud.value[0]:
                 self._backup_on_owncloud()
+            elif self.backup_type == BackupTypes.sftp.value[0]:
+                self._backup_on_sftp()
             self.send_email()
         except Exception as err:
             self.set_last_fields(err.args[0])
@@ -217,14 +207,25 @@ class Configuration(models.Model):
             self.set_last_fields(message, path=path)
             self.message_post(message)
 
-    def _backup_on_googledrive(self):
-        pass
-
     def _backup_on_owncloud(self):
         oc = owncloud.Client(self.cloud_url)
-        oc.login(self.cloud_username, self.cloud_password)
+        try:
+            oc.login(self.cloud_username, self.cloud_password)
+        except:
+            raise exceptions.ValidationError("ownCloud: Check your Creds!")
         path, content = self.get_path_and_content()
-        oc.put_file_contents(path, content.read())
+        try:
+            oc.put_file_contents(path, content.read())
+        except Exception as err:
+            if err.status_code == 404:
+                raise exceptions.ValidationError("Folder not found!")
+            raise err
+        message = ("ownCloud: No Error during upload. You can find the backup under {0}".format(path))
+        self.set_last_fields(message, path=path)
+        self.message_post(message)
+
+    def _backup_on_sftp(self):
+        pass
 
     def get_path_and_content(self):
         filename, content = self.get_backup()
@@ -244,3 +245,31 @@ class Configuration(models.Model):
             self.last_path = path
             self.last_backup = datetime.datetime.now()
         self.last_message = message
+
+    def deactivate_progressbar(self):
+        self.active = False
+        self.state = 'disabled'
+
+    def activate_progressbar(self):
+        self.active = True
+        self.state = 'active'
+
+        if not self.cron_id:
+            nextbackuptime = self.next_backup_time
+            if not nextbackuptime:
+                nextbackuptime = datetime.datetime.today() + datetime.timedelta(days=1)
+            model_id = self.env['ir.model'].search([('model', '=', self._name)])
+            cron_id = self.env['ir.cron'].create({
+                'name': 'Backup: ' + self.name,
+                'model_id': model_id.id,
+                'state': 'code',
+                'user_id': 1,
+                'interval_number': self.schedule_number,
+                'interval_type': self.schedule_frequently,
+                'nextcall': nextbackuptime,
+                'priority': 100,
+                'numbercall': -1,
+                'active': self.active,
+                'code': 'model.action_backup('+str(self.id)+')'
+            })
+            self.cron_id = cron_id.id
