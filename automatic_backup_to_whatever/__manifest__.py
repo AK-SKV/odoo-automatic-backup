@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 {
-    'name': "automatic_backup",
+    'name': "Automatic Backup to whatever",
 
     'summary': """
         Automatic Backup with Automatic Action into S3, Dropbox, SFTP or ownCloud.
@@ -19,9 +19,8 @@
     'depends': ['base', 'mail'],
 
     'data': [
-        # 'security/ir.model.access.csv',
-        'views/views.xml',
-        'views/templates.xml',
+        'security/ir.model.access.csv',
+        'views/views.xml'
     ],
     'demo': [],
 

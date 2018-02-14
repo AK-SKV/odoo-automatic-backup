@@ -2,7 +2,7 @@
   <data>
       <record id="backup_configuration_view_tree" model="ir.ui.view">
         <field name="name">automatic.backup.configuration.view.tree</field>
-        <field name="model">automatic_backup.configuration</field>
+        <field name="model">automatic_backup_to_whatever.configuration</field>
         <field name="arch" type="xml">
             <tree string="Backup Configuration">
                 <field name="name"/>
@@ -14,7 +14,7 @@
 
       <record id="backup_configuration_view_form" model="ir.ui.view">
         <field name="name">automatic.backup.configuration.view.form</field>
-        <field name="model">automatic_backup.configuration</field>
+        <field name="model">automatic_backup_to_whatever.configuration</field>
         <field name="arch" type="xml">
             <form string="Backup Configuration">
                 <header>
@@ -46,6 +46,8 @@
                             <field name="show_owncloud" invisible="1"/>
                             <field name="show_access_key" invisible="1"/>
                             <field name="show_secret_key" invisible="1"/>
+                            <field name="show_login_cred" invisible="1"/>
+                            <field name="show_sftp" invisible="1"/>
                         </group>
                         <group>
                             <field name="schedule_number"/>
@@ -60,9 +62,10 @@
                                     <field name="access_key_id" attrs="{'invisible': [('show_access_key','=',False)]}"/>
                                     <field name="secret_access_key" attrs="{'invisible': [('show_secret_key','=',False)]}"/>
                                     <field name="s3_bucket_name" attrs="{'invisible': [('show_s3','=',False)]}"/>
-                                    <field name="cloud_url" attrs="{'invisible': [('show_owncloud','=',False)]}"/>
-                                    <field name="cloud_username" attrs="{'invisible': [('show_owncloud','=',False)]}"/>
-                                    <field name="cloud_password" attrs="{'invisible': [('show_owncloud','=',False)]}" password="1"/>
+                                    <field name="cloud_url" attrs="{'invisible': [('show_login_cred','=',False)]}"/>
+                                    <field name="cloud_port" attrs="{'invisible': [('show_sftp','=',False)]}"/>
+                                    <field name="cloud_username" attrs="{'invisible': [('show_login_cred','=',False)]}"/>
+                                    <field name="cloud_password" attrs="{'invisible': [('show_login_cred','=',False)]}" password="1"/>
                                 </group>
                             </group>
                         </page>
@@ -81,9 +84,12 @@
                             </group>
                             <group attrs="{'invisible': [('show_dropbox','=',False)]}">
                                 <p>Create an app under your own dropbox account in the "App Console". (https://www.dropbox.com/developers/apps)</p><br/>
-                                <p>Then click the "generate access token" button.</p><br/>
+                                <p>Use only the option to access "App folder". Then click the "generate access token" button.</p><br/>
                                 <p>Paste the Access Key into odoo.</p><br/>
                                 <p><i>Info: All uploads are seperated into a folder called "Apps/app_name/"</i></p>
+                            </group>
+                            <group attrs="{'invisible': [('show_owncloud','=',False)]}">
+                                <p>If using go to your Account->Personal->Security and add a new app. Generate the password and insert it into the form</p><br/>
                             </group>
                         </page>
                         <page string="Latest">
@@ -106,7 +112,7 @@
 
     <record id="backup_configuration_view_search" model="ir.ui.view">
         <field name="name">automatic.backup.configuration.search</field>
-        <field name="model">automatic_backup.configuration</field>
+        <field name="model">automatic_backup_to_whatever.configuration</field>
         <field name="arch" type="xml">
             <search string="Backup Configuration">
                 <field name="active"/>
@@ -120,7 +126,7 @@
 
     <record id="backup_configuration_action" model="ir.actions.act_window">
         <field name="name">Backup Configuration</field>
-        <field name="res_model">automatic_backup.configuration</field>
+        <field name="res_model">automatic_backup_to_whatever.configuration</field>
         <field name="view_type">form</field>
         <field name='view_mode'>tree,form</field>
         <field name="view_id" ref="backup_configuration_view_tree"/>
@@ -139,7 +145,7 @@
           <field name="subject">Succesful Backup: ${object.name}</field>
           <field name="email_to">${object.success_mail.login}</field>
           <field name="lang">${object.success_mail.lang}</field>
-          <field name="model_id" ref="automatic_backup.model_automatic_backup_configuration"/>
+          <field name="model_id" ref="automatic_backup_to_whatever.model_automatic_backup_to_whatever_configuration"/>
           <field name="auto_delete" eval="True"/>
           <field name="body_html">
                 <![CDATA[
@@ -156,7 +162,7 @@
           <field name="subject">Succesful Backup: ${object.name}</field>
           <field name="email_to">${object.success_mail.login}</field>
           <field name="lang">${object.success_mail.lang}</field>
-          <field name="model_id" ref="automatic_backup.model_automatic_backup_configuration"/>
+          <field name="model_id" ref="automatic_backup_to_whatever.model_automatic_backup_to_whatever_configuration"/>
           <field name="auto_delete" eval="True"/>
           <field name="body_html">
                 <![CDATA[
